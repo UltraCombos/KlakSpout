@@ -1,7 +1,7 @@
 {
-    "name": "Klak.Spout.Editor",
+    "name": "jp.keijiro.klak.spout.Editor",
     "references": [
-        "Klak.Spout"
+        "jp.keijiro.klak.spout.Runtime"
     ],
     "optionalUnityReferences": [],
     "includePlatforms": [

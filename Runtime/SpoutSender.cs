@@ -1,128 +1,103 @@
-// KlakSpout - Spout video frame sharing plugin for Unity
+﻿// KlakSpout - Spout realtime video sharing plugin for Unity
 // https://github.com/keijiro/KlakSpout
-
 using UnityEngine;
 
 namespace Klak.Spout
 {
-    [ExecuteInEditMode]
+    /// Spout sender class
     [AddComponentMenu("Klak/Spout/Spout Sender")]
-    public sealed class SpoutSender : MonoBehaviour
+    [RequireComponent(typeof(Camera))]
+    [ExecuteInEditMode]
+    public class SpoutSender : MonoBehaviour
     {
-        #region Source settings
+        #region Editable properties
 
-        [SerializeField] RenderTexture _sourceTexture;
+        [SerializeField] bool _clearAlpha = true;
 
-        public RenderTexture sourceTexture {
-            get { return _sourceTexture; }
-            set { _sourceTexture = value; }
-        }
-
-        #endregion
-
-        #region Format options
-
-        [SerializeField] bool _alphaSupport;
-
-        public bool alphaSupport {
-            get { return _alphaSupport; }
-            set { _alphaSupport = value; }
+        public bool clearAlpha {
+            get { return _clearAlpha; }
+            set { _clearAlpha = value; }
         }
 
         #endregion
 
         #region Private members
 
-        System.IntPtr _plugin;
+        System.IntPtr _sender;
         Texture2D _sharedTexture;
-        Material _blitMaterial;
-
-        void SendRenderTexture(RenderTexture source)
-        {
-            // Plugin lazy initialization
-            if (_plugin == System.IntPtr.Zero)
-            {
-                _plugin = PluginEntry.CreateSender(name, source.width, source.height);
-                if (_plugin == System.IntPtr.Zero) return; // Spout may not be ready.
-            }
-
-            // Shared texture lazy initialization
-            if (_sharedTexture == null)
-            {
-                var ptr = PluginEntry.GetTexturePointer(_plugin);
-                if (ptr != System.IntPtr.Zero)
-                {
-                    _sharedTexture = Texture2D.CreateExternalTexture(
-                        PluginEntry.GetTextureWidth(_plugin),
-                        PluginEntry.GetTextureHeight(_plugin),
-                        TextureFormat.ARGB32, false, false, ptr
-                    );
-                    _sharedTexture.hideFlags = HideFlags.DontSave;
-                }
-            }
-
-            // Shared texture update
-            if (_sharedTexture != null)
-            {
-                // Blit shader lazy initialization
-                if (_blitMaterial == null)
-                {
-                    _blitMaterial = new Material(Shader.Find("Hidden/Spout/Blit"));
-                    _blitMaterial.hideFlags = HideFlags.DontSave;
-                }
-
-                // Blit shader parameters
-                _blitMaterial.SetFloat("_ClearAlpha", _alphaSupport ? 0 : 1);
-
-                // We can't directly blit to the shared texture (as it lacks
-                // render buffer functionality), so we temporarily allocate a
-                // render texture as a middleman, blit the source to it, then
-                // copy it to the shared texture using the CopyTexture API.
-                var tempRT = RenderTexture.GetTemporary
-                    (_sharedTexture.width, _sharedTexture.height);
-                Graphics.Blit(source, tempRT, _blitMaterial, 0);
-                Graphics.CopyTexture(tempRT, _sharedTexture);
-                RenderTexture.ReleaseTemporary(tempRT);
-            }
-        }
+        Material _fixupMaterial;
 
         #endregion
 
-        #region MonoBehaviour implementation
+        #region MonoBehaviour functions
+
+        void OnEnable()
+        {
+            var camera = GetComponent<Camera>();
+            _sender = PluginEntry.CreateSender(name, camera.pixelWidth, camera.pixelHeight);
+        }
 
         void OnDisable()
         {
-            if (_plugin != System.IntPtr.Zero)
+            if (_sender != System.IntPtr.Zero)
             {
-                Util.IssuePluginEvent(PluginEntry.Event.Dispose, _plugin);
-                _plugin = System.IntPtr.Zero;
+                PluginEntry.DestroySharedObject(_sender);
+                _sender = System.IntPtr.Zero;
             }
 
-            Util.Destroy(_sharedTexture);
-        }
-
-        void OnDestroy()
-        {
-            Util.Destroy(_blitMaterial);
+            if (_sharedTexture != null)
+            {
+                if (Application.isPlaying)
+                    Destroy(_sharedTexture);
+                else
+                    DestroyImmediate(_sharedTexture);
+                _sharedTexture = null;
+            }
         }
 
         void Update()
         {
-            // Update the plugin internal state.
-            if (_plugin != System.IntPtr.Zero)
-                Util.IssuePluginEvent(PluginEntry.Event.Update, _plugin);
-
-            // Render texture mode update
-            if (GetComponent<Camera>() == null && _sourceTexture != null)
-                SendRenderTexture(_sourceTexture);
+            PluginEntry.Poll();
         }
 
         void OnRenderImage(RenderTexture source, RenderTexture destination)
         {
-            // Camera capture mode update
-            SendRenderTexture(source);
+            // Lazy initialization for the shared texture.
+            if (_sharedTexture == null)
+            {
+                var ptr = PluginEntry.GetTexturePointer(_sender);
+                if (ptr != System.IntPtr.Zero)
+                {
+                    _sharedTexture = Texture2D.CreateExternalTexture(
+                        PluginEntry.GetTextureWidth(_sender),
+                        PluginEntry.GetTextureHeight(_sender),
+                        TextureFormat.ARGB32, false, false, ptr
+                    );
+                }
+            }
 
-            // Thru blit
+            // Update the shared texture.
+            if (_sharedTexture != null)
+            {
+                // Lazy initialization for the fix-up shader.
+                if (_fixupMaterial == null)
+                    _fixupMaterial = new Material(Shader.Find("Hidden/Spout/Fixup"));
+
+                // Parameters for the fix-up shader.
+                _fixupMaterial.SetFloat("_ClearAlpha", _clearAlpha ? 1 : 0);
+
+                // Apply the fix-up shader.
+                var tempRT = RenderTexture.GetTemporary(_sharedTexture.width, _sharedTexture.height);
+                Graphics.Blit(source, tempRT, _fixupMaterial, 0);
+
+                // Copy the result to the shared texture.
+                Graphics.CopyTexture(tempRT, _sharedTexture);
+
+                // Release temporaries.
+                RenderTexture.ReleaseTemporary(tempRT);
+            }
+
+            // Just transfer the source to the destination.
             Graphics.Blit(source, destination);
         }
 

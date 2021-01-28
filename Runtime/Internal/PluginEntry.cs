@@ -1,88 +1,74 @@
-// KlakSpout - Spout video frame sharing plugin for Unity
+// KlakSpout - Spout realtime video sharing plugin for Unity
 // https://github.com/keijiro/KlakSpout
-
 using UnityEngine;
 using System.Runtime.InteropServices;
 
 namespace Klak.Spout
 {
-    static class PluginEntry
+    public static class PluginEntry
     {
-        internal enum Event { Update, Dispose }
+        #region Plugin polling
 
-        #if UNITY_STANDALONE_WIN && !UNITY_EDITOR_OSX
+        static int _lastUpdateFrame = -1;
 
-        internal static bool IsAvailable {
-            get {
-                return SystemInfo.graphicsDeviceType ==
-                    UnityEngine.Rendering.GraphicsDeviceType.Direct3D11;
+        public static void Poll()
+        {
+            if (Time.frameCount != _lastUpdateFrame)
+            {
+                GL.IssuePluginEvent(GetRenderEventFunc(), 0);
+                _lastUpdateFrame = Time.frameCount;
             }
         }
 
-        [DllImport("KlakSpout")]
-        internal static extern System.IntPtr GetRenderEventFunc();
+        #endregion
+
+        #region Native plugin interface
 
         [DllImport("KlakSpout")]
-        internal static extern System.IntPtr CreateSender(string name, int width, int height);
+        public static extern System.IntPtr GetRenderEventFunc();
 
         [DllImport("KlakSpout")]
-        internal static extern System.IntPtr CreateReceiver(string name);
+        public static extern System.IntPtr CreateSender(string name, int width, int height);
 
         [DllImport("KlakSpout")]
-        internal static extern System.IntPtr GetTexturePointer(System.IntPtr ptr);
+        public static extern System.IntPtr CreateReceiver(string name);
 
         [DllImport("KlakSpout")]
-        internal static extern int GetTextureWidth(System.IntPtr ptr);
+        public static extern void DestroySharedObject(System.IntPtr ptr);
 
         [DllImport("KlakSpout")]
-        internal static extern int GetTextureHeight(System.IntPtr ptr);
-
-        [DllImport("KlakSpout")] [return: MarshalAs(UnmanagedType.Bool)]
-        internal static extern bool CheckValid(System.IntPtr ptr);
+        public static extern bool DetectDisconnection(System.IntPtr ptr);
 
         [DllImport("KlakSpout")]
-        internal static extern int ScanSharedObjects();
+        public static extern System.IntPtr GetTexturePointer(System.IntPtr ptr);
 
         [DllImport("KlakSpout")]
-        internal static extern System.IntPtr GetSharedObjectName(int index);
+        public static extern int GetTextureWidth(System.IntPtr ptr);
 
-        internal static string GetSharedObjectNameString(int index)
+        [DllImport("KlakSpout")]
+        public static extern int GetTextureHeight(System.IntPtr ptr);
+
+        [DllImport("KlakSpout")]
+        public static extern int CountSharedObjects();
+
+        [DllImport("KlakSpout")]
+        public static extern System.IntPtr GetSharedObjectName(int index);
+
+        public static string GetSharedObjectNameString(int index)
         {
             var ptr = GetSharedObjectName(index);
             return ptr != System.IntPtr.Zero ? Marshal.PtrToStringAnsi(ptr) : null;
         }
 
-        #else
+        [DllImport("KlakSpout")]
+        public static extern System.IntPtr SearchSharedObjectName(string keyword);
 
-        internal static bool IsAvailable { get { return false; } }
+        public static string SearchSharedObjectNameString(string keyword)
+        {
+            var ptr = SearchSharedObjectName(keyword);
+            return ptr != System.IntPtr.Zero ? Marshal.PtrToStringAnsi(ptr) : null;
+        }
 
-        internal static System.IntPtr GetRenderEventFunc()
-        { return System.IntPtr.Zero; }
-
-        internal static System.IntPtr CreateSender(string name, int width, int height)
-        { return System.IntPtr.Zero; }
-
-        internal static System.IntPtr CreateReceiver(string name)
-        { return System.IntPtr.Zero; }
-
-        internal static System.IntPtr GetTexturePointer(System.IntPtr ptr)
-        { return System.IntPtr.Zero; }
-
-        internal static int GetTextureWidth(System.IntPtr ptr)
-        { return 0; }
-
-        internal static int GetTextureHeight(System.IntPtr ptr)
-        { return 0; }
-
-        internal static bool CheckValid(System.IntPtr ptr)
-        { return false; }
-
-        internal static int ScanSharedObjects()
-        { return 0; }
-
-        internal static string GetSharedObjectNameString(int index)
-        { return null; }
-
-        #endif
+        #endregion
     }
 }
